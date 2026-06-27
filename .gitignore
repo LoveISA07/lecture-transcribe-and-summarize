@@ -1,0 +1,8 @@
+.env
+.temp_audio/
+__pycache__/
+*.srt
+*.mp3
+*.wav
+*.pyc
+.agents/skills/*/.git
