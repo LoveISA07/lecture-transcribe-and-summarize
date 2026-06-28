@@ -31,15 +31,18 @@ The agent executes the following steps automatically:
 - **Merging**: If multiple audio parts (e.g. Part 1, Part 2) are detected, the script automatically prompts the user to merge them, shifting timestamps and prefixing segments with `[Part X]`.
 - **Output**: `<Subject>.srt`
 
-### 2. Metadata Generation & Punctuation/Spelling Correction
-- **Step 2a: Generate Metadata**: Before running the formatter on a new lecture, the Agent **MUST** read the raw `.srt` file, identify potential ASR errors (homophones, misheard English terms, brand typos), and estimate chapter transitions based on the content. The Agent **MUST** write these into `<Subject>_metadata.json` in the same directory.
+### 2. Punctuation, Basic Correction & LLM Contextual Refinement
+- **Step 2a: Generate Initial Metadata**: Before running the formatter on a new lecture, the Agent **MUST** read the raw `.srt` file, identify potential ASR errors (homophones, misheard English terms, brand typos), and estimate chapter transitions based on the content. Write these into `<Subject>_metadata.json` in the same directory.
 - **Step 2b: Run Formatter**:
   - **Tool**: `generate_final_transcript.py`
   - **Execution**: Run `python generate_final_transcript.py "<Subject>.srt"`. It will automatically detect and load `<Subject>_metadata.json` to apply the corrections and chapter headers.
   - **Output**: `<Subject>-逐字稿.md`
+- **Step 2c: LLM Contextual Refinement (CRITICAL)**:
+  - **Action**: The Agent **MUST** read the generated `<Subject>-逐字稿.md`, use its LLM understanding to analyze the entire text paragraph-by-paragraph, and **directly edit the file** to correct any remaining homophones, garbled sentences, or contextually incorrect terms (e.g. correcting `床的經驗` to `臨床的經驗`, `郭忠祐` to `血糖波動`).
+  - **Goal**: Ensure the final transcript is highly readable, grammatically correct, and professionally accurate before summarizing.
 
 ### 3. Automatic Synthesis (No User Command Needed)
-- **Execution**: As soon as the transcript is generated, the agent **proactively and immediately** synthesizes the following two files:
+- **Execution**: As soon as the refined transcript is ready, the agent **proactively and immediately** synthesizes the following two files:
   - **`<Subject>-書面知識報告.md`**
   - **`<Subject>-重點整理.md`**
 - **Q&A Handling**: If a Q&A session is present at the end of the lecture transcript, it is structured as a dedicated section at the end of the Knowledge Report.
@@ -48,3 +51,4 @@ The agent executes the following steps automatically:
 1. **Running on wrong directory**: Make sure to run commands with full paths or from the directory containing `lecture_to_notes.py`.
 2. **Missing API Key**: For OpenAI transcription, ensure `OPENAI_API_KEY` is set in the local `.env` file, and that `.env` is added to `.gitignore` to avoid leaking it to GitHub.
 3. **Skipping Metadata Generation**: Do not run the formatter without generating the `<Subject>_metadata.json` file first, otherwise the transcript will not contain spelling corrections.
+4. **Skipping Step 2c (LLM Refinement)**: Do not immediately synthesize summaries after Step 2b. Always perform a contextual review of the transcript first to fix remaining ASR errors.
