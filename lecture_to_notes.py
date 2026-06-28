@@ -193,7 +193,7 @@ def run_asr_on_file(model, audio_wav_path, original_filename, part_prefix=""):
             
     return entries, duration
 
-def run_asr_openai(api_key, audio_path, original_filename):
+def run_asr_openai(api_key, audio_path, original_filename, prompt=None):
     """
     透過 OpenAI Whisper API 進行語音辨識
     """
@@ -220,6 +220,8 @@ def run_asr_openai(api_key, audio_path, original_filename):
             "language": (None, "zh"),
             "response_format": (None, "verbose_json")
         }
+        if prompt:
+            files["prompt"] = (None, prompt)
         
         try:
             response = requests.post(url, headers=headers, files=files)
@@ -246,7 +248,7 @@ def run_asr_openai(api_key, audio_path, original_filename):
         
     return entries, duration
 
-def process_single_audio(model, input_path, temp_dir, use_openai=False, openai_api_key=None):
+def process_single_audio(model, input_path, temp_dir, use_openai=False, openai_api_key=None, prompt=None):
     """
     處理單一音訊檔（包括切段邏輯）
     """
@@ -266,7 +268,7 @@ def process_single_audio(model, input_path, temp_dir, use_openai=False, openai_a
         if not convert_and_extract_segment(input_path, wav_path):
             return []
         if use_openai:
-            entries, _ = run_asr_openai(openai_api_key, wav_path, filename)
+            entries, _ = run_asr_openai(openai_api_key, wav_path, filename, prompt=prompt)
         else:
             entries, _ = run_asr_on_file(model, wav_path, filename)
         return entries
@@ -288,7 +290,7 @@ def process_single_audio(model, input_path, temp_dir, use_openai=False, openai_a
             
             if convert_and_extract_segment(input_path, chunk_wav, start, duration):
                 if use_openai:
-                    chunk_entries, _ = run_asr_openai(openai_api_key, chunk_wav, f"{filename} (第 {chunk_idx+1} 段)")
+                    chunk_entries, _ = run_asr_openai(openai_api_key, chunk_wav, f"{filename} (第 {chunk_idx+1} 段)", prompt=prompt)
                 else:
                     chunk_entries, _ = run_asr_on_file(model, chunk_wav, f"{filename} (第 {chunk_idx+1} 段)")
                 
@@ -311,7 +313,7 @@ def process_single_audio(model, input_path, temp_dir, use_openai=False, openai_a
         if not convert_and_extract_segment(input_path, wav_path):
             return []
         if use_openai:
-            entries, _ = run_asr_openai(openai_api_key, wav_path, filename)
+            entries, _ = run_asr_openai(openai_api_key, wav_path, filename, prompt=prompt)
         else:
             entries, _ = run_asr_on_file(model, wav_path, filename)
         return entries
@@ -334,6 +336,7 @@ def main():
     parser.add_argument("--skip-asr", action="store_true", help="跳過 ASR（Option 1 中此參數會提示將 SRT 檔案交給 Antigravity）")
     parser.add_argument("--asr-only", action="store_true", default=True, help="只執行 ASR（在協同方案中此為預設）")
     parser.add_argument("--openai", action="store_true", help="使用 OpenAI 雲端 Whisper API 進行辨識")
+    parser.add_argument("--prompt", type=str, default=None, help="提供給 OpenAI Whisper API 的提示詞（例如核心醫學術語），可大幅提升特定名詞辨識率")
     
     args = parser.parse_args()
     
@@ -446,7 +449,7 @@ def main():
         # 嘗試讀取本地 .env 檔案
         for dotenv_path in [".env", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")]:
             if os.path.exists(dotenv_path):
-                with open(dotenv_path, "r", encoding="utf-8") as f:
+                with open(dotenv_path, "r", encoding="utf-8-sig") as f:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#") and "=" in line:
@@ -493,7 +496,8 @@ def main():
                     file_info['path'], 
                     temp_dir, 
                     use_openai=args.openai, 
-                    openai_api_key=openai_api_key
+                    openai_api_key=openai_api_key,
+                    prompt=args.prompt
                 )
                 
                 # Shift timestamps and add to merged list
@@ -530,7 +534,8 @@ def main():
                     file_info['path'], 
                     temp_dir, 
                     use_openai=args.openai, 
-                    openai_api_key=openai_api_key
+                    openai_api_key=openai_api_key,
+                    prompt=args.prompt
                 )
                 
                 # Save individual SRT (without Part X tags, since it's split)
