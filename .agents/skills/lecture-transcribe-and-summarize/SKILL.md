@@ -31,10 +31,12 @@ The agent executes the following steps automatically:
 - **Merging**: If multiple audio parts (e.g. Part 1, Part 2) are detected, the script automatically prompts the user to merge them, shifting timestamps and prefixing segments with `[Part X]`.
 - **Output**: `<Subject>.srt`
 
-### 2. Punctuation Restoration & Correction
-- **Tool**: `generate_final_transcript.py`
-- **Execution**: The agent runs this script to restore punctuation (using a local BERT punctuation model) and apply custom spelling corrections/oral tic removal defined in `lecture_metadata.json`.
-- **Output**: `<Subject>-逐字稿.md`
+### 2. Metadata Generation & Punctuation/Spelling Correction
+- **Step 2a: Generate Metadata**: Before running the formatter on a new lecture, the Agent **MUST** read the raw `.srt` file, identify potential ASR errors (homophones, misheard English terms, brand typos), and estimate chapter transitions based on the content. The Agent **MUST** write these into `<Subject>_metadata.json` in the same directory.
+- **Step 2b: Run Formatter**:
+  - **Tool**: `generate_final_transcript.py`
+  - **Execution**: Run `python generate_final_transcript.py "<Subject>.srt"`. It will automatically detect and load `<Subject>_metadata.json` to apply the corrections and chapter headers.
+  - **Output**: `<Subject>-逐字稿.md`
 
 ### 3. Automatic Synthesis (No User Command Needed)
 - **Execution**: As soon as the transcript is generated, the agent **proactively and immediately** synthesizes the following two files:
@@ -45,3 +47,4 @@ The agent executes the following steps automatically:
 ## Common Mistakes
 1. **Running on wrong directory**: Make sure to run commands with full paths or from the directory containing `lecture_to_notes.py`.
 2. **Missing API Key**: For OpenAI transcription, ensure `OPENAI_API_KEY` is set in the local `.env` file, and that `.env` is added to `.gitignore` to avoid leaking it to GitHub.
+3. **Skipping Metadata Generation**: Do not run the formatter without generating the `<Subject>_metadata.json` file first, otherwise the transcript will not contain spelling corrections.
