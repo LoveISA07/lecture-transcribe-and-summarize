@@ -2,6 +2,7 @@ import os
 import re
 import json
 import sys
+import argparse
 
 # Suppress warnings
 import warnings
@@ -84,15 +85,28 @@ def clean_base_text(text, oral_tics):
     return clean_text, part_val
 
 def apply_corrections(text, corrections):
-    # Keep original text and append corrected text in parentheses: raw -> raw(correct)
+    # Keep original text and append corrected text in parentheses: raw -> raw (correct)
+    if not corrections:
+        return text
     # Sort corrections by raw string length descending to prevent overlapping replacement issues
     sorted_raws = sorted(corrections.keys(), key=len, reverse=True)
-    for raw in sorted_raws:
-        correct = corrections[raw]
-        text = text.replace(raw, f"{raw}({correct})")
+    placeholders = {}
+    
+    for idx, raw in enumerate(sorted_raws):
+        if raw in text:
+            ph = f"__CORR_PH_{idx}__"
+            text = text.replace(raw, ph)
+            correct = corrections[raw]
+            placeholders[ph] = f"{raw} ({correct})"
+            
+    for ph, replaced_text in placeholders.items():
+        text = text.replace(ph, replaced_text)
+        
     return text
 
 def bold_keywords(text, keywords):
+    if not keywords:
+        return text
     # Bold keywords using placeholder trick to prevent overlapping matching
     sorted_kws = sorted(keywords, key=len, reverse=True)
     placeholders = {}
@@ -109,22 +123,75 @@ def bold_keywords(text, keywords):
     return text
 
 def main():
-    metadata_file = r"c:\Users\User\Documents\Antigravity\MP3解析\lecture_metadata.json"
-    srt_file = r"c:\Users\User\Documents\Antigravity\MP3解析\2026-06-27, 跑者營養.srt"
-    output_file = r"c:\Users\User\Documents\Antigravity\MP3解析\2026-06-27, 跑者營養-逐字稿.md"
+    parser = argparse.ArgumentParser(description="Restore punctuation and format transcript from SRT.")
+    parser.add_argument("srt_file", help="Path to the input SRT file.")
+    parser.add_argument("--metadata", help="Path to the metadata JSON file. If omitted, will search for <srt_base>_metadata.json or use defaults.")
+    parser.add_argument("--output", help="Path to the output markdown file. Defaults to <srt_base>-逐字稿.md")
     
-    if not os.path.exists(metadata_file) or not os.path.exists(srt_file):
-        print("錯誤：找不到 metadata 或 SRT 檔案。")
+    args = parser.parse_args()
+    
+    srt_file = os.path.abspath(args.srt_file)
+    if not os.path.exists(srt_file):
+        print(f"錯誤：找不到 SRT 檔案 '{srt_file}'")
         sys.exit(1)
         
-    with open(metadata_file, "r", encoding="utf-8") as f:
-        meta = json.load(f)
-        
-    chapters = meta["chapters"]
-    corrections = meta["corrections"]
-    keywords = meta["keywords"]
-    oral_tics = meta["oral_tics"]
+    srt_dir = os.path.dirname(srt_file)
+    srt_base = os.path.splitext(os.path.basename(srt_file))[0]
     
+    # Resolve metadata file
+    metadata_file = None
+    if args.metadata:
+        metadata_file = os.path.abspath(args.metadata)
+    else:
+        potential_meta = os.path.join(srt_dir, f"{srt_base}_metadata.json")
+        if os.path.exists(potential_meta):
+            metadata_file = potential_meta
+        else:
+            # Fallback to the generic one in the same dir if it exists, or None
+            generic_meta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lecture_metadata.json")
+            # Only use generic_meta if it is not specific to another lecture, but actually it is specific.
+            # It's better to default to empty if the specific one doesn't exist.
+            metadata_file = None
+
+    # Resolve output file
+    if args.output:
+        output_file = os.path.abspath(args.output)
+    else:
+        output_file = os.path.join(srt_dir, f"{srt_base}-逐字稿.md")
+        
+    # Load metadata
+    meta = {
+        "chapters": [],
+        "corrections": {},
+        "keywords": [],
+        "oral_tics": ["那個", "就是", "然後", "嗯", "對", "好的", "的那個"]
+    }
+    
+    if metadata_file and os.path.exists(metadata_file):
+        print(f"載入詮釋資料 (Metadata): {metadata_file}")
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as f:
+                loaded_meta = json.load(f)
+                meta.update(loaded_meta)
+        except Exception as e:
+            print(f"警告：讀取 metadata 失敗: {e}，將使用預設值。")
+    else:
+        print("未偵測到專屬 metadata 檔案，將使用預設設定進行標點還原。")
+        
+    chapters = meta.get("chapters", [])
+    corrections = meta.get("corrections", {})
+    keywords = meta.get("keywords", [])
+    oral_tics = meta.get("oral_tics", ["那個", "就是", "然後", "嗯", "對", "好的", "的那個"])
+    
+    # If no chapters defined, create a default one spanning the entire lecture
+    if not chapters:
+        chapters = [{
+            "title": "課程內容",
+            "start": 0,
+            "end": 999999,
+            "part": "1"
+        }]
+        
     print("正在載入本地端標點符號恢復模型 (BERT)...")
     try:
         from transformers import pipeline
@@ -177,7 +244,7 @@ def main():
                 
             current_chapter_idx = next_chapter_idx
             ch = chapters[current_chapter_idx]
-            part_label = entry['part'] or ch['part']
+            part_label = entry['part'] or ch.get('part', '1')
             time_display = format_chapter_time(ch['start'])
             paragraphs.append({
                 'type': 'header',
@@ -228,9 +295,8 @@ def main():
     print("\n推論與校正完成！正在將完整的格式化逐字稿寫入檔案...")
     
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write("# 課程逐字稿：跑者營養\n\n")
-        f.write("> 來源：2026-06-27, 跑者營養1.mp3, 2026-06-27, 跑者營養2.mp3｜時長：02:29:02｜整理：2026-06-27\n")
-        f.write("> 來源檔案：2026-06-27, 跑者營養1.mp3, 2026-06-27, 跑者營養2.mp3\n\n")
+        f.write(f"# 課程逐字稿：{srt_base}\n\n")
+        f.write(f"> 來源檔案：{os.path.basename(srt_file)}\n\n")
         f.write("".join(final_output_lines))
         
     print(f"成功將帶有標點符號與括號校正的完整格式化逐字稿輸出至: {output_file}")
